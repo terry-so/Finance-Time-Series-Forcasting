@@ -83,35 +83,36 @@ if args.use_gpu and args.use_multi_gpu:
     args.device_ids = [int(id_) for id_ in device_ids]
     args.gpu = args.device_ids[0]
 
-print('Args in experiment:')
-print(args)
+if __name__ == '__main__':
+    print('Args in experiment:')
+    print(args)
 
-Exp = Exp_Main
+    Exp = Exp_Main
 
-if args.is_training:
-    for ii in range(args.itr):
-        # setting record of experiments
-        setting = '{}_{}_{}_ft{}_sl{}_ll{}_pl{}_{}_{}'.format(
-            args.model_id,
-            args.model,
-            args.data,
-            args.features,
-            args.seq_len,
-            args.label_len,
-            args.pred_len,
-            args.des, ii)
+    if args.is_training:
+        for ii in range(args.itr):
+            # setting record of experiments
+            setting = '{}_{}_{}_ft{}_sl{}_ll{}_pl{}_{}_{}'.format(
+                args.model_id,
+                args.model,
+                args.data,
+                args.features,
+                args.seq_len,
+                args.label_len,
+                args.pred_len,
+                args.des, ii)
 
-        exp = Exp(args)  # set experiments
-        print('>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
-        exp.train(setting)
+            exp = Exp(args)  # set experiments
+            print('>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
+            exp.train(setting)
 
-        print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
-        exp.test(setting)
+            print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
+            exp.test(setting)
 
-        torch.cuda.empty_cache()
-else:
-    ii = 0
-    setting = '{}_{}_{}_ft{}_sl{}_ll{}_pl{}_{}_{}'.format(args.model_id,
+            torch.cuda.empty_cache()
+    else:
+        ii = 0
+        setting = '{}_{}_{}_ft{}_sl{}_ll{}_pl{}_{}_{}'.format(args.model_id,
                                                           args.model,
                                                           args.data,
                                                           args.features,
@@ -120,7 +121,7 @@ else:
                                                           args.pred_len,
                                                           args.des, ii)
 
-    exp = Exp(args)  # set experiments
-    print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
-    exp.test(setting, test=1)
-    torch.cuda.empty_cache()
+        exp = Exp(args)  # set experiments
+        print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
+        exp.test(setting, test=1)
+        torch.cuda.empty_cache()
