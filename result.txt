@@ -1,0 +1,6 @@
+AAPL_15Y_xPatch_xPatch_custom_ftM_sl96_ll48_pl96_'First_Run_AAPL'_0  
+mse:2.2700774669647217, mae:0.8590602874755859
+
+AAPL_Run3_xPatch_custom_ftM_sl96_ll48_pl96_'Epoch20_BS64'_0  
+mse:2.095280647277832, mae:0.8526398539543152
+

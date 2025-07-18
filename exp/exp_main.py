@@ -213,7 +213,7 @@ class Exp_Main(Exp_Basic):
         # print("Training time: {}".format(np.sum(train_times)/len(train_times))) # For computational cost analysis
         best_model_path = path + '/' + 'checkpoint.pth'
         self.model.load_state_dict(torch.load(best_model_path))
-        os.remove(best_model_path)
+        #os.remove(best_model_path)
 
         return self.model
 
@@ -289,8 +289,8 @@ class Exp_Main(Exp_Basic):
         f.write('\n')
         f.close()
 
-        # np.save(folder_path + 'metrics.npy', np.array([mae, mse, rmse, mape, mspe,rse, corr]))
-        # np.save(folder_path + 'pred.npy', preds)
-        # np.save(folder_path + 'true.npy', trues)
-        # np.save(folder_path + 'x.npy', inputx)
+        np.save(folder_path + 'metrics.npy', np.array([mae, mse]))
+        np.save(folder_path + 'pred.npy', preds)
+        np.save(folder_path + 'true.npy', trues)
+        #np.save(folder_path + 'x.npy', inputx)
         return
