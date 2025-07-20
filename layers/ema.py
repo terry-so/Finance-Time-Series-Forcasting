@@ -16,7 +16,7 @@ class EMA(nn.Module):
         # self.alpha.data.clamp_(0, 1)        # Clamp learnable alpha to [0, 1]
         _, t, _ = x.shape
         powers = torch.flip(torch.arange(t, dtype=torch.double), dims=(0,))
-        weights = torch.pow((1 - self.alpha), powers).to('cuda')
+        weights = torch.pow((1 - self.alpha), powers).to(device=x.device)  # Use x.device for device compatibility
         divisor = weights.clone()
         weights[1:] = weights[1:] * self.alpha
         weights = weights.reshape(1, t, 1)
