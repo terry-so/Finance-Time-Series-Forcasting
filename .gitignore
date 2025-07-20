@@ -21,3 +21,10 @@ data/
 *.zip
 *.pt
 *.pth
+
+test_results/
+*.pdf
+
+# Wandb - Weights & Biases tracking
+wandb/
+*.wandb

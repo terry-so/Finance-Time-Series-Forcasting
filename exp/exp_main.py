@@ -13,12 +13,26 @@ import time
 import warnings
 import math
 
+import wandb  # Add wandb import
+
 warnings.filterwarnings('ignore')
 
 class Exp_Main(Exp_Basic):
     def __init__(self, args):
         super(Exp_Main, self).__init__(args)
-
+        # Initialize wandb
+        if hasattr(args, 'use_wandb') and args.use_wandb:
+            wandb.init(
+                project=getattr(args, 'wandb_project', 'XPLSTM finance-time-series-forecasting'),
+                entity=getattr(args, 'wandb_entity', None),  # ADD THIS LINE
+                name=getattr(args, 'model_id', 'experiment'),
+                config=vars(args),
+                tags=[args.model, args.data, f"pred_{args.pred_len}"],
+                notes=getattr(args, 'experiment_notes', '')
+            )
+            # Log model architecture
+            wandb.watch(self.model, log="all", log_freq=100)
+            
     def _build_model(self):
         model_dict = {
             'xPatch': xPatch,
@@ -112,6 +126,15 @@ class Exp_Main(Exp_Basic):
         # criterion = self._select_criterion() # For MSE criterion
         mse_criterion, mae_criterion = self._select_criterion()
 
+        # Log initial hyperparameters to wandb
+        if hasattr(self.args, 'use_wandb') and self.args.use_wandb:
+            wandb.log({
+                "train_samples": len(train_data),
+                "val_samples": len(vali_data), 
+                "test_samples": len(test_data),
+                "train_steps": train_steps
+            })
+
         # # CARD's cosine learning rate decay with warmup
         # self.warmup_epochs = self.args.warmup_epochs
 
@@ -176,6 +199,15 @@ class Exp_Main(Exp_Basic):
                 # loss = criterion(outputs, batch_y) # For MSE criterion
 
                 train_loss.append(loss.item())
+                
+                # Log batch-level metrics to wandb
+                if hasattr(self.args, 'use_wandb') and self.args.use_wandb and (i + 1) % 20 == 0:
+                    wandb.log({
+                        "batch_loss": loss.item(),
+                        "epoch": epoch + 1,
+                        "batch": i + 1,
+                        "learning_rate": model_optim.param_groups[0]['lr']
+                    })
 
                 if (i + 1) % 100 == 0:
                     print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
@@ -198,6 +230,18 @@ class Exp_Main(Exp_Basic):
 
             print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} Test Loss: {4:.7f}".format(
                 epoch + 1, train_steps, train_loss, vali_loss, test_loss))
+            
+            # Log epoch-level metrics to wandb
+            if hasattr(self.args, 'use_wandb') and self.args.use_wandb:
+                wandb.log({
+                    "epoch": epoch + 1,
+                    "train_loss": train_loss,
+                    "val_loss": vali_loss,
+                    "test_loss": test_loss,
+                    "epoch_time": time.time() - epoch_time,
+                    "learning_rate": model_optim.param_groups[0]['lr']
+                })
+            
             early_stopping(vali_loss, self.model, path)
 
             if early_stopping.early_stop:
@@ -260,6 +304,20 @@ class Exp_Main(Exp_Basic):
 
                 preds.append(pred)
                 trues.append(true)
+                
+                # Log sample predictions to wandb
+                if hasattr(self.args, 'use_wandb') and self.args.use_wandb and i % 10 == 0:
+                    # Create prediction vs truth plot
+                    import matplotlib.pyplot as plt
+                    fig, ax = plt.subplots(figsize=(10, 6))
+                    ax.plot(true[0, :, -1], label='Ground Truth', linewidth=2)
+                    ax.plot(pred[0, :, -1], label='Prediction', linewidth=2)
+                    ax.set_title(f'Sample {i} - Prediction vs Truth')
+                    ax.legend()
+                    ax.grid(True, alpha=0.3)
+                    
+                    wandb.log({f"sample_{i}_prediction": wandb.Image(fig)})
+                    plt.close(fig)
 
                 if i % 5 == 0:
                     input = batch_x.detach().cpu().numpy()
@@ -283,6 +341,32 @@ class Exp_Main(Exp_Basic):
 
         mae, mse = metric(preds, trues)
         print('mse:{}, mae:{}'.format(mse, mae))
+        
+        # Log final test metrics to wandb
+        if hasattr(self.args, 'use_wandb') and self.args.use_wandb:
+            wandb.log({
+                "final_test_mse": mse,
+                "final_test_mae": mae,
+                "test_samples": len(test_data)
+            })
+            
+            # Log distribution of errors to wandb
+            sample_mses = []
+            sample_maes = []
+            for i in range(preds.shape[0]):
+                sample_mse = np.mean((preds[i, :, -1] - trues[i, :, -1])**2)
+                sample_mae = np.mean(np.abs(preds[i, :, -1] - trues[i, :, -1]))
+                sample_mses.append(sample_mse)
+                sample_maes.append(sample_mae)
+            
+            wandb.log({
+                "mse_distribution": wandb.Histogram(sample_mses),
+                "mae_distribution": wandb.Histogram(sample_maes),
+                "best_sample_mse": min(sample_mses),
+                "worst_sample_mse": max(sample_mses),
+                "mse_std": np.std(sample_mses)
+            })
+        
         f = open("result.txt", 'a')
         f.write(setting + "  \n")
         f.write('mse:{}, mae:{}'.format(mse, mae))
@@ -294,4 +378,9 @@ class Exp_Main(Exp_Basic):
         np.save(folder_path + 'pred.npy', preds)
         np.save(folder_path + 'true.npy', trues)
         #np.save(folder_path + 'x.npy', inputx)
+        
+        # Finish wandb run
+        if hasattr(self.args, 'use_wandb') and self.args.use_wandb:
+            wandb.finish()
+            
         return
