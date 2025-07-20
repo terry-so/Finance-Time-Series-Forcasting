@@ -76,7 +76,7 @@ class Exp_Main(Exp_Basic):
 
                     # Arctangent loss with weight decay
                     self.ratio = np.array([-1 * math.atan(i+1) + math.pi/4 + 1 for i in range(self.args.pred_len)])
-                    self.ratio = torch.tensor(self.ratio).unsqueeze(-1).to('cuda')
+                    self.ratio = torch.tensor(self.ratio).unsqueeze(-1).to(self.device)
 
                     pred = outputs*self.ratio
                     true = batch_y*self.ratio
@@ -166,7 +166,7 @@ class Exp_Main(Exp_Basic):
 
                 # Arctangent loss with weight decay
                 self.ratio = np.array([-1 * math.atan(i+1) + math.pi/4 + 1 for i in range(self.args.pred_len)])
-                self.ratio = torch.tensor(self.ratio).unsqueeze(-1).to('cuda')
+                self.ratio = torch.tensor(self.ratio).unsqueeze(-1).to(self.device)
 
                 outputs = outputs * self.ratio
                 batch_y = batch_y * self.ratio
