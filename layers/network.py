@@ -2,12 +2,16 @@ import torch
 from torch import nn
 
 class Network(nn.Module):
-    def __init__(self, seq_len, pred_len, patch_len, stride, padding_patch):
+    def __init__(self, seq_len, pred_len, patch_len, stride, padding_patch, use_lstm=False, lstm_hidden_size=None, lstm_layers=1):
         super(Network, self).__init__()
 
         # Parameters
         self.pred_len = pred_len
-
+        
+        ########################################################################
+        self.use_lstm = use_lstm
+        ########################################################################
+        
         # Non-linear Stream
         # Patching
         self.patch_len = patch_len
@@ -21,6 +25,22 @@ class Network(nn.Module):
 
         # Patch Embedding
         self.fc1 = nn.Linear(patch_len, self.dim)
+        ########################################################################
+        # LSTM after patch embedding (MINIMAL ADDITION)
+        if self.use_lstm:
+            self.lstm_hidden_size = lstm_hidden_size or self.dim
+            self.patch_lstm = nn.LSTM(
+                input_size=self.dim,
+                hidden_size=self.lstm_hidden_size,
+                num_layers=lstm_layers,
+                batch_first=True,
+                dropout=0.1 if lstm_layers > 1 else 0
+            )
+            if self.lstm_hidden_size != self.dim:
+                self.lstm_proj = nn.Linear(self.lstm_hidden_size, self.dim)
+            else:
+                self.lstm_proj = nn.Identity()
+        ########################################################################
         self.gelu1 = nn.GELU()
         self.bn1 = nn.BatchNorm1d(self.patch_num)
         
@@ -83,6 +103,15 @@ class Network(nn.Module):
         
         # Patch Embedding
         s = self.fc1(s)
+        
+        ########################################################################
+        # LSTM processing after patch embedding (MINIMAL ADDITION)
+        if self.use_lstm:
+            lstm_out, _ = self.patch_lstm(s)
+            lstm_out = self.lstm_proj(lstm_out)
+            s = s + lstm_out  # Residual connection
+        ########################################################################
+
         s = self.gelu1(s)
         s = self.bn1(s)
 
