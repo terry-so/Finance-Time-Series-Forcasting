@@ -32,7 +32,29 @@ class Model(nn.Module):
         beta = configs.beta         # smoothing factor for DEMA (Double Exponential Moving Average)
 
         self.decomp = DECOMP(self.ma_type, alpha, beta)
-        self.net = Network(seq_len, pred_len, patch_len, stride, padding_patch)
+        
+        #####################################################################
+        
+        # LSTM Configuration
+        use_lstm = getattr(configs, 'use_lstm', False)
+        lstm_hidden_size = getattr(configs, 'lstm_hidden_size', None)
+        lstm_layers = getattr(configs, 'lstm_layers', 1)
+        lstm_dropout = getattr(configs, 'lstm_dropout', 0.1)
+        lstm_bidirectional = getattr(configs, 'lstm_bidirectional', False)
+        
+        self.net = Network(
+            seq_len, pred_len, patch_len, stride, padding_patch,
+            use_lstm=use_lstm,
+            lstm_hidden_size=lstm_hidden_size,
+            lstm_layers=lstm_layers,
+            lstm_dropout=lstm_dropout,
+            lstm_bidirectional=lstm_bidirectional
+        )
+        
+        ####################################################################
+        
+        
+        #self.net = Network(seq_len, pred_len, patch_len, stride, padding_patch)
         # self.net_mlp = NetworkMLP(seq_len, pred_len) # For ablation study with MLP-only stream
         # self.net_cnn = NetworkCNN(seq_len, pred_len, patch_len, stride, padding_patch) # For ablation study with CNN-only stream
 

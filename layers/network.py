@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 class Network(nn.Module):
-    def __init__(self, seq_len, pred_len, patch_len, stride, padding_patch, use_lstm=False, lstm_hidden_size=None, lstm_layers=1):
+    def __init__(self, seq_len, pred_len, patch_len, stride, padding_patch, use_lstm=False, lstm_hidden_size=None, lstm_layers=1, lstm_dropout=0.1, lstm_bidirectional=False):
         super(Network, self).__init__()
 
         # Parameters
@@ -26,20 +26,33 @@ class Network(nn.Module):
         # Patch Embedding
         self.fc1 = nn.Linear(patch_len, self.dim)
         ########################################################################
-        # LSTM after patch embedding (MINIMAL ADDITION)
+        # Enhanced LSTM after patch embedding
         if self.use_lstm:
             self.lstm_hidden_size = lstm_hidden_size or self.dim
+            self.lstm_layers = lstm_layers
+            self.lstm_dropout = lstm_dropout
+            self.lstm_bidirectional = lstm_bidirectional
+            
+            # Calculate effective hidden size (bidirectional doubles output)
+            effective_hidden = self.lstm_hidden_size * (2 if lstm_bidirectional else 1)
+            
             self.patch_lstm = nn.LSTM(
                 input_size=self.dim,
                 hidden_size=self.lstm_hidden_size,
                 num_layers=lstm_layers,
                 batch_first=True,
-                dropout=0.1 if lstm_layers > 1 else 0
+                dropout=lstm_dropout if lstm_layers > 1 else 0,
+                bidirectional=lstm_bidirectional
             )
-            if self.lstm_hidden_size != self.dim:
-                self.lstm_proj = nn.Linear(self.lstm_hidden_size, self.dim)
+            
+            # Projection layer to match dimensions
+            if effective_hidden != self.dim:
+                self.lstm_proj = nn.Linear(effective_hidden, self.dim)
             else:
                 self.lstm_proj = nn.Identity()
+                
+            # Layer normalization for better training stability
+            self.lstm_norm = nn.LayerNorm(self.dim)
         ########################################################################
         self.gelu1 = nn.GELU()
         self.bn1 = nn.BatchNorm1d(self.patch_num)
@@ -105,11 +118,19 @@ class Network(nn.Module):
         s = self.fc1(s)
         
         ########################################################################
-        # LSTM processing after patch embedding (MINIMAL ADDITION)
+        # Enhanced LSTM processing after patch embedding
         if self.use_lstm:
+            # Store original for residual connection
+            s_residual = s
+            
+            # LSTM processing
             lstm_out, _ = self.patch_lstm(s)
+            
+            # Project to match dimensions if needed
             lstm_out = self.lstm_proj(lstm_out)
-            s = s + lstm_out  # Residual connection
+            
+            # Residual connection + Layer normalization
+            s = self.lstm_norm(s_residual + lstm_out)
         ########################################################################
 
         s = self.gelu1(s)
