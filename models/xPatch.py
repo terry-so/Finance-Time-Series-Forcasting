@@ -4,9 +4,11 @@ import math
 
 from layers.decomp import DECOMP
 from layers.network import Network
+from layers.network_lstm import NetworkLSTM  # LSTM-enhanced network
 # from layers.network_mlp import NetworkMLP # For ablation study with MLP-only stream
 # from layers.network_cnn import NetworkCNN # For ablation study with CNN-only stream
 from layers.revin import RevIN
+
 
 class Model(nn.Module):
     def __init__(self, configs):
@@ -14,7 +16,7 @@ class Model(nn.Module):
 
         # Parameters
         seq_len = configs.seq_len   # lookback window L
-        pred_len = configs.pred_len # prediction length (96, 192, 336, 720)
+        pred_len = configs.pred_len  # prediction length (96, 192, 336, 720)
         c_in = configs.enc_in       # input channels
 
         # Patching
@@ -24,37 +26,42 @@ class Model(nn.Module):
 
         # Normalization
         self.revin = configs.revin
-        self.revin_layer = RevIN(c_in,affine=True,subtract_last=False)
+        self.revin_layer = RevIN(c_in, affine=True, subtract_last=False)
 
         # Moving Average
         self.ma_type = configs.ma_type
-        alpha = configs.alpha       # smoothing factor for EMA (Exponential Moving Average)
-        beta = configs.beta         # smoothing factor for DEMA (Double Exponential Moving Average)
+        # smoothing factor for EMA (Exponential Moving Average)
+        alpha = configs.alpha
+        # smoothing factor for DEMA (Double Exponential Moving Average)
+        beta = configs.beta
 
         self.decomp = DECOMP(self.ma_type, alpha, beta)
-        
+
         #####################################################################
-        
+
         # LSTM Configuration
         use_lstm = getattr(configs, 'use_lstm', False)
         lstm_hidden_size = getattr(configs, 'lstm_hidden_size', None)
         lstm_layers = getattr(configs, 'lstm_layers', 1)
         lstm_dropout = getattr(configs, 'lstm_dropout', 0.1)
         lstm_bidirectional = getattr(configs, 'lstm_bidirectional', False)
-        
-        self.net = Network(
-            seq_len, pred_len, patch_len, stride, padding_patch,
-            use_lstm=use_lstm,
-            lstm_hidden_size=lstm_hidden_size,
-            lstm_layers=lstm_layers,
-            lstm_dropout=lstm_dropout,
-            lstm_bidirectional=lstm_bidirectional
-        )
-        
+
+        # Choose network type based on LSTM configuration
+        if use_lstm:
+            self.net = NetworkLSTM(
+                seq_len, pred_len, patch_len, stride, padding_patch,
+                lstm_hidden_size=lstm_hidden_size,
+                lstm_layers=lstm_layers,
+                lstm_dropout=lstm_dropout,
+                lstm_bidirectional=lstm_bidirectional
+            )
+        else:
+            self.net = Network(seq_len, pred_len, patch_len,
+                               stride, padding_patch)
+
         ####################################################################
-        
-        
-        #self.net = Network(seq_len, pred_len, patch_len, stride, padding_patch)
+
+        # self.net = Network(seq_len, pred_len, patch_len, stride, padding_patch)
         # self.net_mlp = NetworkMLP(seq_len, pred_len) # For ablation study with MLP-only stream
         # self.net_cnn = NetworkCNN(seq_len, pred_len, patch_len, stride, padding_patch) # For ablation study with CNN-only stream
 
