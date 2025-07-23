@@ -223,6 +223,8 @@ class Dataset_Custom(Dataset):
         self.scaler = StandardScaler()
         df_raw = pd.read_csv(os.path.join(self.root_path,
                                           self.data_path))
+        
+        self.df_raw = df_raw # <--- ADD THIS LINE
 
         '''
         df_raw.columns: ['date', ...(other features), target feature]
@@ -264,7 +266,7 @@ class Dataset_Custom(Dataset):
             df_stamp['day'] = df_stamp.date.apply(lambda row: row.day, 1)
             df_stamp['weekday'] = df_stamp.date.apply(lambda row: row.weekday(), 1)
             df_stamp['hour'] = df_stamp.date.apply(lambda row: row.hour, 1)
-            data_stamp = df_stamp.drop(['date'], 1).values
+            data_stamp = df_stamp.drop(columns=['date']).values
         elif self.timeenc == 1:
             data_stamp = time_features(pd.to_datetime(df_stamp['date'].values), freq=self.freq)
             data_stamp = data_stamp.transpose(1, 0)
@@ -290,7 +292,16 @@ class Dataset_Custom(Dataset):
         return len(self.data_x) - self.seq_len - self.pred_len + 1
 
     def inverse_transform(self, data):
-        return self.scaler.inverse_transform(data)
+        #return self.scaler.inverse_transform(data)
+        cols_for_scaler = self.df_raw.columns.drop('date')
+        target_idx = cols_for_scaler.get_loc(self.target)
+
+        # Extract the mean and scale for ONLY the target column
+        target_mean = self.scaler.mean_[target_idx]
+        target_scale = self.scaler.scale_[target_idx]
+
+        # Apply the inverse transformation manually
+        return (data * target_scale) + target_mean
 
 class Dataset_Solar(Dataset):
     def __init__(self, root_path, flag='train', size=None,

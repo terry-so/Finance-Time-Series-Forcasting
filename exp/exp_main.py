@@ -1,6 +1,7 @@
 from data_provider.data_factory import data_provider
 from exp.exp_basic import Exp_Basic
 from models import xPatch
+from models import xPatch_LSTM
 from utils.tools import EarlyStopping, adjust_learning_rate, visual
 from utils.metrics import metric
 
@@ -27,6 +28,7 @@ class Exp_Main(Exp_Basic):
                 entity=getattr(args, 'wandb_entity', None),  # ADD THIS LINE
                 name=getattr(args, 'model_id', 'experiment'),
                 config=vars(args),
+                group=getattr(args, 'model', 'default_group'),
                 tags=[args.model, args.data, f"pred_{args.pred_len}"],
                 notes=getattr(args, 'experiment_notes', '')
             )
@@ -36,6 +38,7 @@ class Exp_Main(Exp_Basic):
     def _build_model(self):
         model_dict = {
             'xPatch': xPatch,
+            'xPatch_LSTM': xPatch_LSTM,
         }
         model = model_dict[self.args.model].Model(self.args).float()
 
@@ -129,6 +132,8 @@ class Exp_Main(Exp_Basic):
         # Log initial hyperparameters to wandb
         if hasattr(self.args, 'use_wandb') and self.args.use_wandb:
             wandb.log({
+                "model_type":self.args.model,
+                "notes":self.args.experiment_notes,
                 "train_samples": len(train_data),
                 "val_samples": len(vali_data), 
                 "test_samples": len(test_data),
