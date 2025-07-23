@@ -1,0 +1,28 @@
+# In file: sweep.yaml
+
+program: train_sweep.py  # The name of the script the agent will run
+method: bayes            # The search strategy: bayes is a smart search
+metric:
+  name: Vali Loss        # The metric to track, must match the name in your log
+  goal: minimize         # We want to minimize the validation loss
+
+parameters:
+  learning_rate:
+    # Try learning rates on a log scale between 0.001 and 0.00001
+    distribution: log_uniform_values
+    min: 0.00001
+    max: 0.001
+  
+  batch_size:
+    # Try these specific batch sizes
+    values: [16, 32, 64]
+
+  seq_len:
+    # Try these different lookback window sizes
+    values: [48, 96, 192]
+
+  dropout:
+    # Try different dropout rates
+    distribution: uniform
+    min: 0.05
+    max: 0.3
