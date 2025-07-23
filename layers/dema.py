@@ -9,8 +9,8 @@ class DEMA(nn.Module):
         super(DEMA, self).__init__()
         # self.alpha = nn.Parameter(alpha)    # Learnable alpha
         # self.beta = nn.Parameter(beta)      # Learnable beta
-        self.alpha = alpha.to(device='cuda')
-        self.beta = beta.to(device='cuda')
+        self.alpha = alpha
+        self.beta = beta
 
     def forward(self, x):
         # self.alpha.data.clamp_(0, 1)        # Clamp learnable alpha to [0, 1]
