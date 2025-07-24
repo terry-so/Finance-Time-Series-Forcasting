@@ -17,13 +17,15 @@ import wandb  # Add wandb import
 
 warnings.filterwarnings('ignore')
 
+
 class Exp_Main(Exp_Basic):
     def __init__(self, args):
         super(Exp_Main, self).__init__(args)
         # Initialize wandb
         if hasattr(args, 'use_wandb') and args.use_wandb:
             wandb.init(
-                project=getattr(args, 'wandb_project', 'XPLSTM finance-time-series-forecasting'),
+                project=getattr(args, 'wandb_project',
+                                'XPLSTM finance-time-series-forecasting'),
                 entity=getattr(args, 'wandb_entity', None),  # ADD THIS LINE
                 name=getattr(args, 'model_id', 'experiment'),
                 config=vars(args),
@@ -32,7 +34,7 @@ class Exp_Main(Exp_Basic):
             )
             # Log model architecture
             wandb.watch(self.model, log="all", log_freq=100)
-            
+
     def _build_model(self):
         model_dict = {
             'xPatch': xPatch,
@@ -49,7 +51,8 @@ class Exp_Main(Exp_Basic):
 
     def _select_optimizer(self):
         # model_optim = optim.Adam(self.model.parameters(), lr=self.args.learning_rate)
-        model_optim = optim.AdamW(self.model.parameters(), lr=self.args.learning_rate)
+        model_optim = optim.AdamW(
+            self.model.parameters(), lr=self.args.learning_rate)
         return model_optim
 
     # # MSE criterion
@@ -57,13 +60,33 @@ class Exp_Main(Exp_Basic):
     #     criterion = nn.MSELoss()
     #     return criterion
 
-    # MSE and MAE criterion
+    # MSE and MAE criterion with directional loss support
     def _select_criterion(self):
-        mse_criterion = nn.MSELoss()
-        mae_criterion = nn.L1Loss()
-        return mse_criterion, mae_criterion
+        from utils.tools import get_loss_function
 
-    def vali(self, vali_data, vali_loader, criterion, is_test = True):
+        # Get the loss function from args.loss if available, otherwise default to mae
+        loss_name = getattr(self.args, 'loss', 'mae')
+
+        # Extract directional loss parameters if available
+        directional_params = {}
+        if hasattr(self.args, 'directional_alpha'):
+            directional_params['alpha'] = self.args.directional_alpha
+        if hasattr(self.args, 'directional_beta'):
+            directional_params['beta'] = self.args.directional_beta
+
+        # Only add gamma for weighted_directional loss
+        if loss_name == 'weighted_directional' and hasattr(self.args, 'directional_gamma'):
+            directional_params['gamma'] = self.args.directional_gamma
+
+        # Get the main criterion based on loss type
+        main_criterion = get_loss_function(loss_name, **directional_params)
+
+        # Keep separate MSE for validation/testing if using directional loss
+        mse_criterion = nn.MSELoss()
+
+        return main_criterion, mse_criterion
+
+    def vali(self, vali_data, vali_loader, criterion, is_test=True):
         total_loss = []
         self.model.eval()
         with torch.no_grad():
@@ -75,13 +98,16 @@ class Exp_Main(Exp_Basic):
                 batch_y_mark = batch_y_mark.float().to(self.device)
 
                 # decoder input
-                dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
-                dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
+                dec_inp = torch.zeros_like(
+                    batch_y[:, -self.args.pred_len:, :]).float()
+                dec_inp = torch.cat(
+                    [batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
                 # encoder - decoder
                 outputs = self.model(batch_x)
                 f_dim = -1 if self.args.features == 'MS' else 0
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
-                batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+                batch_y = batch_y[:, -self.args.pred_len:,
+                                  f_dim:].to(self.device)
 
                 # if train, use ratio to scale the prediction
                 if not is_test:
@@ -89,19 +115,30 @@ class Exp_Main(Exp_Basic):
                     # self.ratio = np.array([max(1/np.sqrt(i+1),0.0) for i in range(self.args.pred_len)])
 
                     # Arctangent loss with weight decay
-                    self.ratio = np.array([-1 * math.atan(i+1) + math.pi/4 + 1 for i in range(self.args.pred_len)])
-                    self.ratio = torch.tensor(self.ratio).unsqueeze(-1).to(self.device)
+                    self.ratio = np.array(
+                        [-1 * math.atan(i+1) + math.pi/4 + 1 for i in range(self.args.pred_len)])
+                    self.ratio = torch.tensor(
+                        self.ratio).unsqueeze(-1).to(self.device)
 
                     pred = outputs*self.ratio
                     true = batch_y*self.ratio
                 else:
-                    pred = outputs#.detach().cpu()
-                    true = batch_y#.detach().cpu()
+                    pred = outputs  # .detach().cpu()
+                    true = batch_y  # .detach().cpu()
 
                 # pred = outputs.detach().cpu()
                 # true = batch_y.detach().cpu()
 
-                loss = criterion(pred, true)
+                # Calculate loss with directional loss support
+                loss_name = getattr(self.args, 'loss', 'mae')
+                if 'directional' in loss_name and not is_test:
+                    # For directional loss in validation, we need the last known values
+                    last_values = batch_x[:, -1,
+                                          f_dim:] if f_dim == -1 else batch_x[:, -1, :]
+                    loss = criterion(pred, true, last_values)
+                else:
+                    # Regular loss or testing (use simple criterion)
+                    loss = criterion(pred, true)
 
                 total_loss.append(loss.item())
         total_loss = np.average(total_loss)
@@ -120,17 +157,18 @@ class Exp_Main(Exp_Basic):
         time_now = time.time()
 
         train_steps = len(train_loader)
-        early_stopping = EarlyStopping(patience=self.args.patience, verbose=True)
+        early_stopping = EarlyStopping(
+            patience=self.args.patience, verbose=True)
 
         model_optim = self._select_optimizer()
         # criterion = self._select_criterion() # For MSE criterion
-        mse_criterion, mae_criterion = self._select_criterion()
+        main_criterion, mse_criterion = self._select_criterion()
 
         # Log initial hyperparameters to wandb
         if hasattr(self.args, 'use_wandb') and self.args.use_wandb:
             wandb.log({
                 "train_samples": len(train_data),
-                "val_samples": len(vali_data), 
+                "val_samples": len(vali_data),
                 "test_samples": len(test_data),
                 "train_steps": train_steps
             })
@@ -142,11 +180,11 @@ class Exp_Main(Exp_Basic):
         #     """Decay the learning rate with half-cycle cosine after warmup"""
         #     min_lr = 0
         #     if epoch < self.warmup_epochs:
-        #         lr = self.args.learning_rate * epoch / self.warmup_epochs 
+        #         lr = self.args.learning_rate * epoch / self.warmup_epochs
         #     else:
         #         lr = min_lr+ (self.args.learning_rate - min_lr) * 0.5 * \
         #             (1. + math.cos(math.pi * (epoch - self.warmup_epochs) / (self.args.train_epochs - self.warmup_epochs)))
-                
+
         #     for param_group in optimizer.param_groups:
         #         if "lr_scale" in param_group:
         #             param_group["lr"] = lr * param_group["lr_scale"]
@@ -173,8 +211,10 @@ class Exp_Main(Exp_Basic):
                 batch_y_mark = batch_y_mark.float().to(self.device)
 
                 # decoder input
-                dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
-                dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
+                dec_inp = torch.zeros_like(
+                    batch_y[:, -self.args.pred_len:, :]).float()
+                dec_inp = torch.cat(
+                    [batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
 
                 # encoder - decoder
                 # temp = time.time() # For computational cost analysis
@@ -182,24 +222,38 @@ class Exp_Main(Exp_Basic):
                 # train_time += time.time() - temp # For computational cost analysis
                 f_dim = -1 if self.args.features == 'MS' else 0
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
-                batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+                batch_y = batch_y[:, -self.args.pred_len:,
+                                  f_dim:].to(self.device)
 
                 # CARD loss with weight decay
                 # self.ratio = np.array([max(1/np.sqrt(i+1),0.0) for i in range(self.args.pred_len)])
 
                 # Arctangent loss with weight decay
-                self.ratio = np.array([-1 * math.atan(i+1) + math.pi/4 + 1 for i in range(self.args.pred_len)])
-                self.ratio = torch.tensor(self.ratio).unsqueeze(-1).to(self.device)
+                self.ratio = np.array(
+                    [-1 * math.atan(i+1) + math.pi/4 + 1 for i in range(self.args.pred_len)])
+                self.ratio = torch.tensor(
+                    self.ratio).unsqueeze(-1).to(self.device)
 
-                outputs = outputs * self.ratio
-                batch_y = batch_y * self.ratio
+                outputs_weighted = outputs * self.ratio
+                batch_y_weighted = batch_y * self.ratio
 
-                loss = mae_criterion(outputs, batch_y)
+                # Calculate loss with directional loss support
+                loss_name = getattr(self.args, 'loss', 'mae')
+                if 'directional' in loss_name:
+                    # For directional loss, we need the last known values
+                    # Extract the last value from the input sequence
+                    last_values = batch_x[:, -1,
+                                          f_dim:] if f_dim == -1 else batch_x[:, -1, :]
+                    loss = main_criterion(
+                        outputs_weighted, batch_y_weighted, last_values)
+                else:
+                    # Regular loss (MAE/MSE)
+                    loss = main_criterion(outputs_weighted, batch_y_weighted)
 
                 # loss = criterion(outputs, batch_y) # For MSE criterion
 
                 train_loss.append(loss.item())
-                
+
                 # Log batch-level metrics to wandb
                 if hasattr(self.args, 'use_wandb') and self.args.use_wandb and (i + 1) % 20 == 0:
                     wandb.log({
@@ -210,10 +264,13 @@ class Exp_Main(Exp_Basic):
                     })
 
                 if (i + 1) % 100 == 0:
-                    print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
+                    print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(
+                        i + 1, epoch + 1, loss.item()))
                     speed = (time.time() - time_now) / iter_count
-                    left_time = speed * ((self.args.train_epochs - epoch) * train_steps - i)
-                    print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
+                    left_time = speed * \
+                        ((self.args.train_epochs - epoch) * train_steps - i)
+                    print(
+                        '\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
                     iter_count = 0
                     time_now = time.time()
 
@@ -221,16 +278,18 @@ class Exp_Main(Exp_Basic):
                 model_optim.step()
 
             # train_times.append(train_time/len(train_loader)) # For computational cost analysis
-            print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
+            print("Epoch: {} cost time: {}".format(
+                epoch + 1, time.time() - epoch_time))
             train_loss = np.average(train_loss)
             # vali_loss = self.vali(vali_data, vali_loader, criterion) # For MSE criterion
             # test_loss = self.vali(test_data, test_loader, criterion) # For MSE criterion
-            vali_loss = self.vali(vali_data, vali_loader, mae_criterion, is_test=False)
+            vali_loss = self.vali(vali_data, vali_loader,
+                                  main_criterion, is_test=False)
             test_loss = self.vali(test_data, test_loader, mse_criterion)
 
             print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} Test Loss: {4:.7f}".format(
                 epoch + 1, train_steps, train_loss, vali_loss, test_loss))
-            
+
             # Log epoch-level metrics to wandb
             if hasattr(self.args, 'use_wandb') and self.args.use_wandb:
                 wandb.log({
@@ -241,7 +300,7 @@ class Exp_Main(Exp_Basic):
                     "epoch_time": time.time() - epoch_time,
                     "learning_rate": model_optim.param_groups[0]['lr']
                 })
-            
+
             early_stopping(vali_loss, self.model, path)
 
             if early_stopping.early_stop:
@@ -257,16 +316,17 @@ class Exp_Main(Exp_Basic):
         # print("Training time: {}".format(np.sum(train_times)/len(train_times))) # For computational cost analysis
         best_model_path = path + '/' + 'checkpoint.pth'
         self.model.load_state_dict(torch.load(best_model_path))
-        #os.remove(best_model_path)
+        # os.remove(best_model_path)
 
         return self.model
 
     def test(self, setting, test=0):
         test_data, test_loader = self._get_data(flag='test')
-        
+
         if test:
             print('loading model')
-            self.model.load_state_dict(torch.load(os.path.join('./checkpoints/' + setting, 'checkpoint.pth')))
+            self.model.load_state_dict(torch.load(os.path.join(
+                './checkpoints/' + setting, 'checkpoint.pth')))
 
         preds = []
         trues = []
@@ -285,8 +345,10 @@ class Exp_Main(Exp_Basic):
                 batch_y_mark = batch_y_mark.float().to(self.device)
 
                 # decoder input
-                dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
-                dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
+                dec_inp = torch.zeros_like(
+                    batch_y[:, -self.args.pred_len:, :]).float()
+                dec_inp = torch.cat(
+                    [batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
                 # encoder - decoder
                 # temp = time.time() # For computational cost analysis
                 outputs = self.model(batch_x)
@@ -294,7 +356,8 @@ class Exp_Main(Exp_Basic):
 
                 f_dim = -1 if self.args.features == 'MS' else 0
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
-                batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+                batch_y = batch_y[:, -self.args.pred_len:,
+                                  f_dim:].to(self.device)
                 outputs = outputs.detach().cpu().numpy()
                 batch_y = batch_y.detach().cpu().numpy()
 
@@ -304,7 +367,7 @@ class Exp_Main(Exp_Basic):
 
                 preds.append(pred)
                 trues.append(true)
-                
+
                 # Log sample predictions to wandb
                 if hasattr(self.args, 'use_wandb') and self.args.use_wandb and i % 10 == 0:
                     # Create prediction vs truth plot
@@ -315,16 +378,18 @@ class Exp_Main(Exp_Basic):
                     ax.set_title(f'Sample {i} - Prediction vs Truth')
                     ax.legend()
                     ax.grid(True, alpha=0.3)
-                    
+
                     wandb.log({f"sample_{i}_prediction": wandb.Image(fig)})
                     plt.close(fig)
 
                 if i % 5 == 0:
                     input = batch_x.detach().cpu().numpy()
-                    gt = np.concatenate((input[0, :, -1], true[0, :, -1]), axis=0)
-                    pd = np.concatenate((input[0, :, -1], pred[0, :, -1]), axis=0)
+                    gt = np.concatenate(
+                        (input[0, :, -1], true[0, :, -1]), axis=0)
+                    pd = np.concatenate(
+                        (input[0, :, -1], pred[0, :, -1]), axis=0)
                     visual(gt, pd, os.path.join(folder_path, str(i) + '.pdf'))
-            
+
         # print("Inference time: {}".format(test_time/len(test_loader))) # For computational cost analysis
         preds = np.array(preds)
         trues = np.array(trues)
@@ -341,7 +406,7 @@ class Exp_Main(Exp_Basic):
 
         mae, mse = metric(preds, trues)
         print('mse:{}, mae:{}'.format(mse, mae))
-        
+
         # Log final test metrics to wandb
         if hasattr(self.args, 'use_wandb') and self.args.use_wandb:
             wandb.log({
@@ -349,7 +414,7 @@ class Exp_Main(Exp_Basic):
                 "final_test_mae": mae,
                 "test_samples": len(test_data)
             })
-            
+
             # Log distribution of errors to wandb
             sample_mses = []
             sample_maes = []
@@ -358,7 +423,7 @@ class Exp_Main(Exp_Basic):
                 sample_mae = np.mean(np.abs(preds[i, :, -1] - trues[i, :, -1]))
                 sample_mses.append(sample_mse)
                 sample_maes.append(sample_mae)
-            
+
             wandb.log({
                 "mse_distribution": wandb.Histogram(sample_mses),
                 "mae_distribution": wandb.Histogram(sample_maes),
@@ -366,7 +431,7 @@ class Exp_Main(Exp_Basic):
                 "worst_sample_mse": max(sample_mses),
                 "mse_std": np.std(sample_mses)
             })
-        
+
         f = open("result.txt", 'a')
         f.write(setting + "  \n")
         f.write('mse:{}, mae:{}'.format(mse, mae))
@@ -377,10 +442,10 @@ class Exp_Main(Exp_Basic):
         np.save(folder_path + 'metrics.npy', np.array([mae, mse]))
         np.save(folder_path + 'pred.npy', preds)
         np.save(folder_path + 'true.npy', trues)
-        #np.save(folder_path + 'x.npy', inputx)
-        
+        # np.save(folder_path + 'x.npy', inputx)
+
         # Finish wandb run
         if hasattr(self.args, 'use_wandb') and self.args.use_wandb:
             wandb.finish()
-            
+
         return

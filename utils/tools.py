@@ -2,9 +2,30 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 import time
+import torch.nn as nn
+import utils as utils
 
 plt.switch_backend('agg')
 
+# Add this to your existing tools.py
+
+def get_loss_function(loss_name, **kwargs):
+    """Get loss function by name with directional loss support"""
+    if loss_name == 'mse':
+        return nn.MSELoss()
+    elif loss_name == 'mae':
+        return nn.L1Loss()
+    elif loss_name == 'directional_mse':
+        from utils.directional_loss import DirectionalLoss
+        return DirectionalLoss(base_loss='mse', **kwargs)
+    elif loss_name == 'directional_mae':
+        from utils.directional_loss import DirectionalLoss
+        return DirectionalLoss(base_loss='mae', **kwargs)
+    elif loss_name == 'weighted_directional':
+        from utils.directional_loss import WeightedDirectionalLoss
+        return WeightedDirectionalLoss(**kwargs)
+    else:
+        return nn.MSELoss()
 
 def adjust_learning_rate(optimizer, epoch, args):
     # lr = args.learning_rate * (0.2 ** (epoch // 2))
